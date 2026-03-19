@@ -2,12 +2,13 @@ from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import extract, func
 from sqlalchemy.orm import Session
 
 from app.api.api_v1.auth import get_current_admin, get_current_super_admin
 from app.core import security
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.admin import AccessLog, AuditLog, ManualQAEntry, SystemAlert, SystemConfig
 from app.models.chat import Chat, Message, MessageFeedback
@@ -34,6 +35,7 @@ from app.schemas.admin import (
 )
 from app.schemas.analytics import AdminOverviewResponse, AnalyticsPoint
 from app.services.admin_audit import create_alert, log_access, log_audit
+from app.services.document_processor import reindex_document_from_chunks
 
 router = APIRouter()
 
@@ -55,6 +57,23 @@ DEFAULT_SYSTEM_CONFIG = {
         "teams": False,
         "email_notifications": False,
         "internal_portal": False,
+    },
+    "model_settings": {
+        "chat_provider": settings.CHAT_PROVIDER,
+        "chat_model": {
+            "openai": settings.OPENAI_MODEL,
+            "deepseek": settings.DEEPSEEK_MODEL,
+            "ollama": settings.OLLAMA_MODEL,
+        }.get(settings.CHAT_PROVIDER, settings.OPENAI_MODEL),
+        "embeddings_provider": settings.EMBEDDINGS_PROVIDER,
+        "embeddings_model": {
+            "openai": settings.OPENAI_EMBEDDINGS_MODEL,
+            "dashscope": settings.DASH_SCOPE_EMBEDDINGS_MODEL,
+            "ollama": settings.OLLAMA_EMBEDDINGS_MODEL,
+        }.get(settings.EMBEDDINGS_PROVIDER, settings.OPENAI_EMBEDDINGS_MODEL),
+        "openai_api_base": settings.OPENAI_API_BASE,
+        "deepseek_api_base": settings.DEEPSEEK_API_BASE,
+        "ollama_api_base": settings.OLLAMA_API_BASE,
     },
 }
 
@@ -477,12 +496,15 @@ def update_document(
 def reindex_document(
     *,
     document_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin)
 ) -> Any:
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
+    if not document.chunks:
+        raise HTTPException(status_code=400, detail="Document has no stored chunks to reindex")
     task = ProcessingTask(
         knowledge_base_id=document.knowledge_base_id,
         document_id=document.id,
@@ -493,6 +515,7 @@ def reindex_document(
     db.add(document)
     log_audit(db, current_user, "admin.reindex_document", "document", entity_id=str(document_id))
     db.commit()
+    background_tasks.add_task(reindex_document_from_chunks, document.id, task.id)
     return {"status": "queued", "task_id": task.id}
 
 
@@ -710,6 +733,10 @@ def update_system_config(
     current_user: User = Depends(get_current_admin)
 ) -> Any:
     updates = payload.dict()
+    if "model_settings" in updates and updates["model_settings"] and not (
+        current_user.is_superuser or current_user.role == "super_admin"
+    ):
+        raise HTTPException(status_code=403, detail="Only super-admins can change active model settings")
     for key, value in updates.items():
         row = db.query(SystemConfig).filter(SystemConfig.key == key).first()
         if not row:

@@ -27,10 +27,20 @@ interface Document {
   processing_tasks: any[];
 }
 
+interface CurrentUser {
+  is_superuser: boolean;
+  role?: string;
+}
+
 export default function KnowledgeBasePage() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const canManageKnowledge =
+    currentUser?.is_superuser ||
+    currentUser?.role === "admin" ||
+    currentUser?.role === "super_admin";
 
   useEffect(() => {
     fetchKnowledgeBases();
@@ -38,8 +48,12 @@ export default function KnowledgeBasePage() {
 
   const fetchKnowledgeBases = async () => {
     try {
-      const data = await api.get("/api/knowledge-base");
+      const [data, me] = await Promise.all([
+        api.get("/api/knowledge-base"),
+        api.get("/api/auth/me"),
+      ]);
       setKnowledgeBases(data);
+      setCurrentUser(me);
     } catch (error) {
       console.error("Failed to fetch knowledge bases:", error);
       if (error instanceof ApiError) {
@@ -88,13 +102,15 @@ export default function KnowledgeBasePage() {
               Manage your knowledge bases and documents
             </p>
           </div>
-          <Link
-            href="/dashboard/knowledge/new"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            New Knowledge Base
-          </Link>
+          {canManageKnowledge && (
+            <Link
+              href="/dashboard/knowledge/new"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New Knowledge Base
+            </Link>
+          )}
         </div>
 
         <div className="grid gap-6">
@@ -122,18 +138,22 @@ export default function KnowledgeBasePage() {
                   >
                     <Settings className="h-4 w-4" />
                   </Link>
-                  <Link
-                    href={`/dashboard/test-retrieval/${kb.id}`}
-                    className="inline-flex items-center justify-center rounded-md bg-secondary w-8 h-8"
-                  >
-                    <Search className="h-4 w-4" />
-                  </Link>
-                  <button
-                    onClick={() => handleDelete(kb.id)}
-                    className="inline-flex items-center justify-center rounded-md bg-destructive/10 hover:bg-destructive/20 w-8 h-8"
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </button>
+                  {canManageKnowledge && (
+                    <>
+                      <Link
+                        href={`/dashboard/test-retrieval/${kb.id}`}
+                        className="inline-flex items-center justify-center rounded-md bg-secondary w-8 h-8"
+                      >
+                        <Search className="h-4 w-4" />
+                      </Link>
+                      <button
+                        onClick={() => handleDelete(kb.id)}
+                        className="inline-flex items-center justify-center rounded-md bg-destructive/10 hover:bg-destructive/20 w-8 h-8"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 

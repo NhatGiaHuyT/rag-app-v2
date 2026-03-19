@@ -36,7 +36,7 @@ def query_knowledge_base(
                 detail=f"Knowledge base {knowledge_base_id} not found",
             )
         
-        embeddings = EmbeddingsFactory.create()
+        embeddings = EmbeddingsFactory.create(db=db)
         
         vector_store = VectorStoreFactory.create(
             store_type=settings.VECTOR_STORE_TYPE,

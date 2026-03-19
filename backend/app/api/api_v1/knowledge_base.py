@@ -13,6 +13,7 @@ import asyncio
 
 from app.db.session import get_db
 from app.models.user import User
+from app.api.api_v1.auth import get_current_admin
 from app.core.security import get_current_user
 from app.models.knowledge import KnowledgeBase, Document, ProcessingTask, DocumentChunk, DocumentUpload
 from app.models.knowledge import KnowledgeBasePermission, DocumentPermission
@@ -96,7 +97,7 @@ def create_knowledge_base(
     *,
     db: Session = Depends(get_db),
     kb_in: KnowledgeBaseCreate,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ) -> Any:
     """
     Create new knowledge base.
@@ -153,10 +154,7 @@ def get_knowledge_base(
             joinedload(KnowledgeBase.documents)
             .joinedload(Document.processing_tasks)
         )
-        .filter(
-            KnowledgeBase.id == kb_id,
-            KnowledgeBase.user_id == current_user.id
-        )
+        .filter(KnowledgeBase.id == kb_id)
         .first()
     )
 
@@ -176,7 +174,7 @@ def update_knowledge_base(
     db: Session = Depends(get_db),
     kb_id: int,
     kb_in: KnowledgeBaseUpdate,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ) -> Any:
     """
     Update knowledge base.
@@ -200,7 +198,7 @@ async def delete_knowledge_base(
     *,
     db: Session = Depends(get_db),
     kb_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ) -> Any:
     """
     Delete knowledge base and all associated resources.
@@ -217,7 +215,7 @@ async def delete_knowledge_base(
         
         # Initialize services
         minio_client = get_minio_client()
-        embeddings = EmbeddingsFactory.create()
+        embeddings = EmbeddingsFactory.create(db=db)
 
         vector_store = VectorStoreFactory.create(
             store_type=settings.VECTOR_STORE_TYPE,
@@ -270,7 +268,7 @@ async def upload_kb_documents(
     kb_id: int,
     files: List[UploadFile],
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ):
     """
     Upload multiple documents to MinIO.
@@ -348,7 +346,7 @@ async def preview_kb_documents(
     kb_id: int,
     preview_request: PreviewRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ) -> Dict[int, PreviewResult]:
     """
     Preview multiple documents' chunks.
@@ -390,7 +388,7 @@ async def process_kb_documents(
     upload_results: List[dict],
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ):
     """
     Process multiple documents asynchronously.
@@ -479,7 +477,7 @@ async def add_processing_tasks_to_queue(task_data, kb_id):
 @router.post("/cleanup")
 async def cleanup_temp_files(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ):
     """
     Clean up expired temporary files.
@@ -510,7 +508,7 @@ async def get_processing_tasks(
     kb_id: int,
     task_ids: str = Query(..., description="Comma-separated list of task IDs to check status for"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ):
     """
     Get status of multiple processing tasks.
@@ -580,7 +578,7 @@ async def test_retrieval(
     request: TestRetrievalRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ) -> Any:
     """
     Test retrieval quality for a given query against a knowledge base.
@@ -594,7 +592,7 @@ async def test_retrieval(
                 detail=f"Knowledge base {request.kb_id} not found",
             )
         
-        embeddings = EmbeddingsFactory.create()
+        embeddings = EmbeddingsFactory.create(db=db)
         
         vector_store = VectorStoreFactory.create(
             store_type=settings.VECTOR_STORE_TYPE,
@@ -624,7 +622,7 @@ def update_knowledge_base_permissions(
     kb_id: int,
     payload: KnowledgeBasePermissionUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ) -> Any:
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb or not can_edit_knowledge_base(db, current_user, kb):
@@ -677,7 +675,7 @@ def update_document_permissions(
     doc_id: int,
     payload: DocumentPermissionUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ) -> Any:
     document = (
         db.query(Document)

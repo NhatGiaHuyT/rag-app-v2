@@ -194,7 +194,7 @@ def update_profile(
 @router.get("/users", response_model=list[UserResponse])
 def list_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ) -> Any:
     del current_user
     users = db.query(User).order_by(User.username.asc()).all()

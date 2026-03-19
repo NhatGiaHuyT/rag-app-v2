@@ -2,22 +2,124 @@ import json
 import base64
 from datetime import datetime
 from typing import List, AsyncGenerator
+import requests
 from sqlalchemy.orm import Session
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.documents import Document as LangchainDocument
 from app.core.config import settings
 from app.models.chat import Message
-from app.models.knowledge import KnowledgeBase, Document
+from app.models.knowledge import KnowledgeBase, Document, DocumentChunk
 from app.models.admin import ManualQAEntry, SystemConfig
 from langchain.globals import set_verbose, set_debug
 from app.services.vector_store import VectorStoreFactory
 from app.services.embedding.embedding_factory import EmbeddingsFactory
 from app.services.llm.llm_factory import LLMFactory
+from app.services.runtime_config import get_runtime_model_settings
 
 set_verbose(True)
 set_debug(True)
+
+
+def _score_chunk(query: str, page_content: str) -> int:
+    terms = [term for term in query.lower().split() if len(term) >= 2]
+    text = page_content.lower()
+    return sum(text.count(term) for term in terms)
+
+
+def _retrieve_chunks_from_db(
+    db: Session,
+    query: str,
+    knowledge_base_ids: List[int],
+    limit: int = 4,
+) -> List[LangchainDocument]:
+    chunk_rows = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.kb_id.in_(knowledge_base_ids))
+        .all()
+    )
+    ranked: list[tuple[int, DocumentChunk]] = []
+    for row in chunk_rows:
+        metadata = dict(row.chunk_metadata or {})
+        page_content = metadata.get("page_content", "")
+        if not page_content.strip():
+            continue
+        ranked.append((_score_chunk(query, page_content), row))
+
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    selected = [row for score, row in ranked if score > 0][:limit]
+    if not selected:
+        selected = [row for _, row in ranked[:limit]]
+
+    documents: List[LangchainDocument] = []
+    for row in selected:
+        metadata = dict(row.chunk_metadata or {})
+        page_content = metadata.pop("page_content", "")
+        if not page_content.strip():
+            continue
+        documents.append(
+            LangchainDocument(
+                page_content=page_content,
+                metadata=metadata,
+            )
+        )
+    return documents
+
+
+def _generate_ollama_answer(
+    db: Session,
+    query: str,
+    context_docs: List[LangchainDocument],
+) -> str:
+    runtime_settings = get_runtime_model_settings(db)
+    base_url = runtime_settings.get("ollama_api_base", settings.OLLAMA_API_BASE).rstrip("/")
+    model = runtime_settings.get("chat_model") or settings.OLLAMA_MODEL
+
+    context_lines = []
+    for index, doc in enumerate(context_docs, start=1):
+        excerpt = doc.page_content.strip().replace("\r", "\n")
+        if len(excerpt) > 900:
+            excerpt = excerpt[:900] + "..."
+        context_lines.append(f"[{index}] {excerpt}")
+
+    prompt = (
+        "You are a helpful RAG assistant. Answer the user's question only from the provided context. "
+        "If the context is insufficient, say what information is missing. "
+        "Cite the supporting context using [citation:x]. Keep the answer concise.\n\n"
+        f"Question:\n{query}\n\n"
+        "Context:\n"
+        + "\n\n".join(context_lines)
+    )
+
+    response = requests.post(
+        f"{base_url}/api/generate",
+        json={
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return (payload.get("response") or "").strip()
+
+
+def _build_excerpt_fallback(context_docs: List[LangchainDocument]) -> str:
+    excerpts = []
+    for index, doc in enumerate(context_docs[:3], start=1):
+        excerpt = " ".join(doc.page_content.strip().split())
+        if len(excerpt) > 240:
+            excerpt = excerpt[:240] + "..."
+        excerpts.append(f"{index}. {excerpt}")
+    joined = "\n".join(excerpts) if excerpts else "No relevant excerpts were found."
+    return (
+        "The local Ollama chat model is currently unavailable on this machine, so I can't generate a full answer right now. "
+        "Here are the most relevant excerpts from the knowledge base:\n"
+        f"{joined}"
+    )
 
 async def generate_response(
     query: str,
@@ -58,6 +160,7 @@ async def generate_response(
             db.add(bot_message)
             db.commit()
             yield f"0:{json.dumps(manual_entry.answer)}\n"
+            yield 'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n'
             return
         
         # Get knowledge bases and their documents
@@ -66,9 +169,65 @@ async def generate_response(
             .filter(KnowledgeBase.id.in_(knowledge_base_ids))
             .all()
         )
+
+        runtime_settings = get_runtime_model_settings(db)
+        chat_provider = (runtime_settings.get("chat_provider") or settings.CHAT_PROVIDER).lower()
+
+        if chat_provider == "ollama":
+            context_docs = _retrieve_chunks_from_db(db, query, knowledge_base_ids)
+            if not context_docs:
+                error_msg = (
+                    "I couldn't find any stored knowledge chunks for this chat yet. "
+                    "Please upload and process documents for the selected knowledge base first."
+                )
+                yield f"0:{json.dumps(error_msg)}\n"
+                yield 'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n'
+                bot_message.content = error_msg
+                db.commit()
+                return
+
+            serializable_context = [
+                {
+                    "page_content": doc.page_content,
+                    "metadata": doc.metadata,
+                }
+                for doc in context_docs
+            ]
+            escaped_context = json.dumps({"context": serializable_context})
+            base64_context = base64.b64encode(escaped_context.encode()).decode()
+            separator = "__LLM_RESPONSE__"
+            yield f'0:"{base64_context}{separator}"\n'
+
+            try:
+                answer_chunk = _generate_ollama_answer(db, query, context_docs)
+                if not answer_chunk:
+                    answer_chunk = (
+                        "I couldn't generate an answer from the current knowledge base contents. "
+                        "Please try rephrasing the question."
+                    )
+            except Exception:
+                answer_chunk = _build_excerpt_fallback(context_docs)
+            full_response = base64_context + separator + answer_chunk
+            yield f"0:{json.dumps(answer_chunk)}\n"
+
+            touched_document_ids = {
+                int(doc.metadata["document_id"])
+                for doc in context_docs
+                if doc.metadata.get("document_id")
+            }
+            if touched_document_ids:
+                for document in db.query(Document).filter(Document.id.in_(list(touched_document_ids))).all():
+                    document.query_count = (document.query_count or 0) + 1
+                    document.last_queried_at = datetime.utcnow()
+                    db.add(document)
+
+            bot_message.content = full_response
+            db.commit()
+            yield 'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n'
+            return
         
         # Initialize embeddings
-        embeddings = EmbeddingsFactory.create()
+        embeddings = EmbeddingsFactory.create(db=db)
         
         # Create a vector store for each knowledge base
         vector_stores = []
@@ -81,12 +240,17 @@ async def generate_response(
                     collection_name=f"kb_{kb.id}",
                     embedding_function=embeddings,
                 )
-                print(f"Collection {f'kb_{kb.id}'} count:", vector_store._store._collection.count())
-                vector_stores.append(vector_store)
+                collection_count = vector_store._store._collection.count()
+                print(f"Collection {f'kb_{kb.id}'} count:", collection_count)
+                if collection_count > 0:
+                    vector_stores.append(vector_store)
         
         if not vector_stores:
-            error_msg = "I don't have any knowledge base to help answer your question."
-            yield f'0:"{error_msg}"\n'
+            error_msg = (
+                "I couldn't find any indexed knowledge for this chat yet. "
+                "Please upload and process documents for the selected knowledge base first."
+            )
+            yield f"0:{json.dumps(error_msg)}\n"
             yield 'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n'
             bot_message.content = error_msg
             db.commit()
@@ -96,7 +260,9 @@ async def generate_response(
         retriever = vector_stores[0].as_retriever()
         
         # Initialize the language model
-        llm = LLMFactory.create()
+        # We assemble and emit our own response chunks, so non-streaming LLM calls are
+        # more reliable here than provider-level streaming.
+        llm = LLMFactory.create(db=db, streaming=False)
         
         # Create contextualize question prompt
         contextualize_q_system_prompt = (
@@ -177,44 +343,39 @@ async def generate_response(
 
         full_response = ""
         touched_document_ids = set()
-        async for chunk in rag_chain.astream({
+        result = await rag_chain.ainvoke({
             "input": query,
             "chat_history": chat_history
-        }):
-            if "context" in chunk:
-                serializable_context = []
-                for context in chunk["context"]:
-                    document_id = context.metadata.get("document_id")
-                    if document_id:
-                        touched_document_ids.add(int(document_id))
-                    serializable_doc = {
-                        "page_content": context.page_content.replace('"', '\\"'),
-                        "metadata": context.metadata,
-                    }
-                    serializable_context.append(serializable_doc)
-                
-                # 先替换引号，再序列化
-                escaped_context = json.dumps({
-                    "context": serializable_context
-                })
+        })
 
-                # 转成 base64
-                base64_context = base64.b64encode(escaped_context.encode()).decode()
+        serializable_context = []
+        for context in result.get("context", []):
+            document_id = context.metadata.get("document_id")
+            if document_id:
+                touched_document_ids.add(int(document_id))
+            serializable_doc = {
+                "page_content": context.page_content.replace('"', '\\"'),
+                "metadata": context.metadata,
+            }
+            serializable_context.append(serializable_doc)
 
-                # 连接符号
-                separator = "__LLM_RESPONSE__"
-                
-                yield f'0:"{base64_context}{separator}"\n'
-                full_response += base64_context + separator
+        if serializable_context:
+            escaped_context = json.dumps({
+                "context": serializable_context
+            })
+            base64_context = base64.b64encode(escaped_context.encode()).decode()
+            separator = "__LLM_RESPONSE__"
+            yield f'0:"{base64_context}{separator}"\n'
+            full_response += base64_context + separator
 
-            if "answer" in chunk:
-                answer_chunk = chunk["answer"]
-                full_response += answer_chunk
-                # Escape quotes and use json.dumps to properly handle special characters
-                escaped_chunk = (answer_chunk
-                    .replace('"', '\\"')
-                    .replace('\n', '\\n'))
-                yield f'0:"{escaped_chunk}"\n'
+        answer_chunk = result.get("answer", "")
+        if not answer_chunk or not answer_chunk.strip():
+            answer_chunk = (
+                "I couldn't generate an answer from the current knowledge base contents. "
+                "Please verify the documents were indexed successfully and try again."
+            )
+        full_response += answer_chunk
+        yield f"0:{json.dumps(answer_chunk)}\n"
 
         if touched_document_ids:
             for document in db.query(Document).filter(Document.id.in_(list(touched_document_ids))).all():
@@ -225,11 +386,13 @@ async def generate_response(
         # Update bot message content
         bot_message.content = full_response
         db.commit()
+        yield 'd:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n'
             
     except Exception as e:
         error_message = f"Error generating response: {str(e)}"
         print(error_message)
         yield '3:{text}\n'.format(text=error_message)
+        yield 'd:{"finishReason":"error","usage":{"promptTokens":0,"completionTokens":0}}\n'
         
         # Update bot message with error
         if 'bot_message' in locals():

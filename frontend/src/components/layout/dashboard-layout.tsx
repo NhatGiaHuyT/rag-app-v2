@@ -54,24 +54,36 @@ export default function DashboardLayout({
     router.push("/login");
   };
 
+  const isAdmin =
+    currentUser?.is_superuser ||
+    currentUser?.role === "admin" ||
+    currentUser?.role === "super_admin";
+  const isExpert =
+    currentUser?.is_expert ||
+    currentUser?.role === "expert" ||
+    currentUser?.role === "super_admin";
+
   const navigation = [
     { name: "Knowledge Base", href: "/dashboard/knowledge", icon: Book },
     { name: "Chat", href: "/dashboard/chat", icon: MessageSquare },
-    { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
     { name: "Profile", href: "/dashboard/profile", icon: User },
-    { name: "API Keys", href: "/dashboard/api-keys", icon: Shield },
   ];
 
-  if (currentUser?.is_superuser || currentUser?.role === "admin" || currentUser?.role === "super_admin") {
+  if (isAdmin) {
+    navigation.splice(1, 0, { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 });
+    navigation.push({ name: "API Keys", href: "/dashboard/api-keys", icon: Shield });
+  }
+
+  if (isAdmin) {
     navigation.splice(3, 0, {
       name: "Admin",
       href: "/dashboard/admin",
       icon: Shield,
     });
   }
-  if (currentUser?.is_expert || currentUser?.role === "expert" || currentUser?.role === "super_admin") {
+  if (isExpert) {
     navigation.splice(
-      currentUser?.is_superuser || currentUser?.role === "admin" || currentUser?.role === "super_admin" ? 4 : 3,
+      isAdmin ? 4 : 2,
       0,
       {
         name: "Expert Review",
@@ -196,11 +208,6 @@ export const dashboardConfig = {
       title: "Chat",
       href: "/dashboard/chat",
       icon: "messageSquare",
-    },
-    {
-      title: "API Keys",
-      href: "/dashboard/api-keys",
-      icon: "key",
     },
   ],
 };

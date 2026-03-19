@@ -6,7 +6,7 @@ import logging
 from app import models, schemas
 from app.db.session import get_db
 from app.services.api_key import APIKeyService
-from app.api.api_v1.auth import get_current_user
+from app.api.api_v1.auth import get_current_admin
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ def read_api_keys(
     db: Session = Depends(get_db),
     skip: int = 0,
     limit: int = 100,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_admin),
 ) -> Any:
     """
     Retrieve API keys.
@@ -31,7 +31,7 @@ def create_api_key(
     *,
     db: Session = Depends(get_db),
     api_key_in: schemas.APIKeyCreate,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_admin),
 ) -> Any:
     """
     Create new API key.
@@ -48,7 +48,7 @@ def update_api_key(
     db: Session = Depends(get_db),
     id: int,
     api_key_in: schemas.APIKeyUpdate,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_admin),
 ) -> Any:
     """
     Update API key.
@@ -68,7 +68,7 @@ def delete_api_key(
     *,
     db: Session = Depends(get_db),
     id: int,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_admin),
 ) -> Any:
     """
     Delete API key.

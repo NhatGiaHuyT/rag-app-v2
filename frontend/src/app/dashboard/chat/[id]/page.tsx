@@ -261,6 +261,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
       const decoder = new TextDecoder();
       let buffer = "";
       let rawAssistantContent = "";
+      let streamError: string | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -273,6 +274,10 @@ export default function ChatPage({ params }: { params: { id: string } }) {
         buffer = lines.pop() || "";
 
         for (const line of lines) {
+          if (line.startsWith("3:")) {
+            streamError = line.slice(2);
+            break;
+          }
           if (!line.startsWith('0:')) {
             continue;
           }
@@ -292,9 +297,15 @@ export default function ChatPage({ params }: { params: { id: string } }) {
             )
           );
         }
+
+        if (streamError) {
+          break;
+        }
       }
 
-      if (buffer.startsWith('0:')) {
+      if (buffer.startsWith("3:")) {
+        streamError = buffer.slice(2);
+      } else if (buffer.startsWith('0:')) {
         const chunk = JSON.parse(buffer.slice(2)) as string;
         rawAssistantContent += chunk;
         const decoded = decodeAssistantContent(rawAssistantContent);
@@ -311,8 +322,42 @@ export default function ChatPage({ params }: { params: { id: string } }) {
         );
       }
 
+      if (streamError) {
+        const friendlyMessage = streamError.replace(/^Error generating response:\s*/, "");
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  content: `The assistant could not complete this response: ${friendlyMessage}`,
+                }
+              : message
+          )
+        );
+        toast({
+          title: "Chat error",
+          description: friendlyMessage,
+          variant: "destructive",
+        });
+        return;
+      }
+
       await fetchChat();
     } catch (error) {
+      const fallbackMessage =
+        error instanceof Error && error.message
+          ? error.message
+          : "The chat stream was interrupted before the answer completed.";
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                content: `The assistant could not complete this response: ${fallbackMessage}`,
+              }
+            : message
+        )
+      );
       toast({
         title: "Chat error",
         description:

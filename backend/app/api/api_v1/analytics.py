@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.api_v1.auth import get_current_user
+from app.api.api_v1.auth import get_current_admin
 from app.db.session import get_db
 from app.models.chat import Chat, Message, MessageFeedback
 from app.models.knowledge import Document, KnowledgeBase
@@ -17,7 +17,7 @@ router = APIRouter()
 @router.get("/me", response_model=UserAnalyticsResponse)
 def get_my_analytics(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ) -> Any:
     knowledge_bases = db.query(KnowledgeBase).filter(KnowledgeBase.user_id == current_user.id).count()
     chats = db.query(Chat).filter(Chat.user_id == current_user.id).count()

@@ -56,6 +56,7 @@ interface ShareableUser {
 
 interface DocumentListProps {
   knowledgeBaseId: number;
+  canManage?: boolean;
 }
 
 const visibilityOptions = [
@@ -69,7 +70,7 @@ const documentAccessOptions = [
   { value: "public", label: "Public" },
 ];
 
-export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
+export function DocumentList({ knowledgeBaseId, canManage = false }: DocumentListProps) {
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBase | null>(null);
   const [users, setUsers] = useState<ShareableUser[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +86,7 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
     try {
       const [kbData, userData] = await Promise.all([
         api.get(`/api/knowledge-base/${knowledgeBaseId}`),
-        api.get("/api/auth/users"),
+        canManage ? api.get("/api/auth/users") : Promise.resolve([]),
       ]);
       setKnowledgeBase(kbData);
       setUsers(userData);
@@ -236,7 +237,9 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
           <div>
             <h2 className="text-xl font-semibold">{knowledgeBase.name}</h2>
             <p className="text-sm text-muted-foreground">
-              Set who can open this knowledge base and who can edit it.
+              {canManage
+                ? "Set who can open this knowledge base and who can edit it."
+                : "Browse the documents you are allowed to access."}
             </p>
           </div>
           <div className="flex items-center gap-2 rounded-full bg-muted px-3 py-2 text-sm">
@@ -245,70 +248,74 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[220px_1fr_1fr]">
-          <div>
-            <label className="text-sm font-medium">Knowledge base access</label>
-            <select
-              value={kbVisibility}
-              onChange={(event) => setKbVisibility(event.target.value)}
-              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              {visibilityOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        {canManage && (
+          <>
+            <div className="mt-6 grid gap-6 lg:grid-cols-[220px_1fr_1fr]">
+              <div>
+                <label className="text-sm font-medium">Knowledge base access</label>
+                <select
+                  value={kbVisibility}
+                  onChange={(event) => setKbVisibility(event.target.value)}
+                  className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {visibilityOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div>
-            <p className="mb-3 flex items-center gap-2 text-sm font-medium">
-              <Users className="h-4 w-4" />
-              Viewers
-            </p>
-            <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
-              {availableUsers.map((user) => (
-                <label key={`viewer-${user.id}`} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={kbViewerIds.includes(user.id)}
-                    onChange={() => toggleUser(user.id, kbViewerIds, setKbViewerIds)}
-                  />
-                  <span>{user.full_name || user.username}</span>
-                </label>
-              ))}
+              <div>
+                <p className="mb-3 flex items-center gap-2 text-sm font-medium">
+                  <Users className="h-4 w-4" />
+                  Viewers
+                </p>
+                <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
+                  {availableUsers.map((user) => (
+                    <label key={`viewer-${user.id}`} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={kbViewerIds.includes(user.id)}
+                        onChange={() => toggleUser(user.id, kbViewerIds, setKbViewerIds)}
+                      />
+                      <span>{user.full_name || user.username}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 flex items-center gap-2 text-sm font-medium">
+                  <ShieldCheck className="h-4 w-4" />
+                  Editors
+                </p>
+                <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
+                  {availableUsers.map((user) => (
+                    <label key={`editor-${user.id}`} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={kbEditorIds.includes(user.id)}
+                        onChange={() => toggleUser(user.id, kbEditorIds, setKbEditorIds)}
+                      />
+                      <span>{user.full_name || user.username}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <p className="mb-3 flex items-center gap-2 text-sm font-medium">
-              <ShieldCheck className="h-4 w-4" />
-              Editors
-            </p>
-            <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
-              {availableUsers.map((user) => (
-                <label key={`editor-${user.id}`} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={kbEditorIds.includes(user.id)}
-                    onChange={() => toggleUser(user.id, kbEditorIds, setKbEditorIds)}
-                  />
-                  <span>{user.full_name || user.username}</span>
-                </label>
-              ))}
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={saveKnowledgeBasePermissions}
+                className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              >
+                Save Knowledge Base Permissions
+              </button>
             </div>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <button
-            type="button"
-            onClick={saveKnowledgeBasePermissions}
-            className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
-            Save Knowledge Base Permissions
-          </button>
-        </div>
+          </>
+        )}
       </div>
 
       {knowledgeBase.documents.length === 0 ? (
@@ -320,7 +327,9 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
             <div className="space-y-2">
               <h3 className="text-xl font-semibold">No documents yet</h3>
               <p className="text-muted-foreground">
-                Upload your first document to start building your knowledge base.
+                {canManage
+                  ? "Upload your first document to start building your knowledge base."
+                  : "There are no documents available for you in this knowledge base yet."}
               </p>
             </div>
           </div>
@@ -333,8 +342,8 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
               <TableHead>Size</TableHead>
               <TableHead>Created</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Access</TableHead>
-              <TableHead>Sharing</TableHead>
+              {canManage && <TableHead>Access</TableHead>}
+              {canManage && <TableHead>Sharing</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -383,41 +392,46 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
                     </Badge>
                   )}
                 </TableCell>
-                <TableCell>
-                  <select
-                    value={doc.access_level}
-                    onChange={(event) => updateDocumentAccess(doc.id, event.target.value)}
-                    className="flex h-9 rounded-md border border-input bg-background px-2 text-sm"
-                  >
-                    {documentAccessOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </TableCell>
-                <TableCell>
-                  <button
-                    type="button"
-                    onClick={() => openDocumentShare(doc)}
-                    className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
-                  >
-                    Share
-                  </button>
-                </TableCell>
+                {canManage && (
+                  <TableCell>
+                    <select
+                      value={doc.access_level}
+                      onChange={(event) => updateDocumentAccess(doc.id, event.target.value)}
+                      className="flex h-9 rounded-md border border-input bg-background px-2 text-sm"
+                    >
+                      {documentAccessOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </TableCell>
+                )}
+                {canManage && (
+                  <TableCell>
+                    <button
+                      type="button"
+                      onClick={() => openDocumentShare(doc)}
+                      className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+                    >
+                      Share
+                    </button>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
         </Table>
       )}
 
-      <Dialog open={Boolean(selectedDocument)} onOpenChange={(open) => !open && setSelectedDocument(null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Share Document</DialogTitle>
-          </DialogHeader>
-          {selectedDocument && (
-            <div className="space-y-6">
+      {canManage && (
+        <Dialog open={Boolean(selectedDocument)} onOpenChange={(open) => !open && setSelectedDocument(null)}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Share Document</DialogTitle>
+            </DialogHeader>
+            {selectedDocument && (
+              <div className="space-y-6">
               <div>
                 <p className="font-medium">{selectedDocument.file_name}</p>
                 <p className="text-sm text-muted-foreground">
@@ -495,10 +509,11 @@ export function DocumentList({ knowledgeBaseId }: DocumentListProps) {
                   Save Sharing
                 </button>
               </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

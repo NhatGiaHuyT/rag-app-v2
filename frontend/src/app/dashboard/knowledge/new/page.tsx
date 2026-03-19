@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/dashboard-layout";
 import { api, ApiError } from "@/lib/api";
@@ -18,7 +18,21 @@ export default function NewKnowledgeBasePage() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [canManageKnowledge, setCanManageKnowledge] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    api
+      .get("/api/auth/me")
+      .then((me) => {
+        const allowed = me.is_superuser || me.role === "admin" || me.role === "super_admin";
+        setCanManageKnowledge(allowed);
+        if (!allowed) {
+          router.replace("/dashboard/knowledge");
+        }
+      })
+      .catch(() => router.replace("/dashboard/knowledge"));
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -52,6 +66,10 @@ export default function NewKnowledgeBasePage() {
       setIsSubmitting(false);
     }
   };
+
+  if (!canManageKnowledge) {
+    return <DashboardLayout><div className="p-6 text-sm text-muted-foreground">Checking permissions...</div></DashboardLayout>;
+  }
 
   return (
     <DashboardLayout>

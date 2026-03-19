@@ -42,6 +42,11 @@ interface FlaggedAnswer {
   expert_assignee_name?: string | null;
 }
 
+interface CurrentUser {
+  is_superuser: boolean;
+  role?: string;
+}
+
 export default function AdminPage() {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -53,6 +58,7 @@ export default function AdminPage() {
   const [manualQa, setManualQa] = useState<any[]>([]);
   const [flaggedAnswers, setFlaggedAnswers] = useState<FlaggedAnswer[]>([]);
   const [systemConfig, setSystemConfig] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ email: "", username: "", password: "", full_name: "", role: "user" });
   const [manualQuestion, setManualQuestion] = useState("");
@@ -60,7 +66,7 @@ export default function AdminPage() {
 
   const load = async () => {
     try {
-      const [overviewData, usersData, documentsData, kbData, alertsData, auditData, accessData, manualQaData, flaggedData, configData] =
+      const [overviewData, usersData, documentsData, kbData, alertsData, auditData, accessData, manualQaData, flaggedData, configData, me] =
         await Promise.all([
           api.get("/api/admin/overview"),
           api.get("/api/admin/users"),
@@ -72,6 +78,7 @@ export default function AdminPage() {
           api.get("/api/admin/quality/manual-qa"),
           api.get("/api/admin/quality/flagged-answers"),
           api.get("/api/admin/system-config"),
+          api.get("/api/auth/me"),
         ]);
       setOverview(overviewData);
       setUsers(usersData.users);
@@ -83,6 +90,7 @@ export default function AdminPage() {
       setManualQa(manualQaData);
       setFlaggedAnswers(flaggedData);
       setSystemConfig(configData);
+      setCurrentUser(me);
       setError(null);
     } catch (fetchError) {
       setError(fetchError instanceof ApiError ? fetchError.message : "Failed to load admin workspace");
@@ -306,6 +314,41 @@ export default function AdminPage() {
                     <textarea value={JSON.stringify(systemConfig.response_settings, null, 2)} onChange={(e) => setSystemConfig((c: any) => ({ ...c, response_settings: JSON.parse(e.target.value || "{}") }))} rows={5} className="rounded-md border border-input bg-background px-3 py-2 text-xs" />
                     <textarea value={JSON.stringify(systemConfig.feedback_workflow, null, 2)} onChange={(e) => setSystemConfig((c: any) => ({ ...c, feedback_workflow: JSON.parse(e.target.value || "{}") }))} rows={5} className="rounded-md border border-input bg-background px-3 py-2 text-xs" />
                     <textarea value={JSON.stringify(systemConfig.integrations, null, 2)} onChange={(e) => setSystemConfig((c: any) => ({ ...c, integrations: JSON.parse(e.target.value || "{}") }))} rows={5} className="rounded-md border border-input bg-background px-3 py-2 text-xs" />
+                    {(currentUser?.is_superuser || currentUser?.role === "super_admin") && (
+                      <div className="grid gap-3 rounded-xl border p-4">
+                        <p className="text-sm font-medium">Active model settings</p>
+                        <select
+                          value={systemConfig.model_settings?.chat_provider || "openai"}
+                          onChange={(e) => setSystemConfig((c: any) => ({ ...c, model_settings: { ...c.model_settings, chat_provider: e.target.value } }))}
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          <option value="openai">OpenAI</option>
+                          <option value="deepseek">DeepSeek</option>
+                          <option value="ollama">Ollama</option>
+                        </select>
+                        <input
+                          value={systemConfig.model_settings?.chat_model || ""}
+                          onChange={(e) => setSystemConfig((c: any) => ({ ...c, model_settings: { ...c.model_settings, chat_model: e.target.value } }))}
+                          placeholder="Active chat model"
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        />
+                        <select
+                          value={systemConfig.model_settings?.embeddings_provider || "openai"}
+                          onChange={(e) => setSystemConfig((c: any) => ({ ...c, model_settings: { ...c.model_settings, embeddings_provider: e.target.value } }))}
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          <option value="openai">OpenAI</option>
+                          <option value="dashscope">DashScope</option>
+                          <option value="ollama">Ollama</option>
+                        </select>
+                        <input
+                          value={systemConfig.model_settings?.embeddings_model || ""}
+                          onChange={(e) => setSystemConfig((c: any) => ({ ...c, model_settings: { ...c.model_settings, embeddings_model: e.target.value } }))}
+                          placeholder="Active embeddings model"
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        />
+                      </div>
+                    )}
                   </div>
                   <button onClick={() => api.put("/api/admin/system-config", systemConfig).then(load)} className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Save System Configuration</button>
                 </div>

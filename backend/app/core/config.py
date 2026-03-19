@@ -1,13 +1,13 @@
 import os
-from typing import List, Optional
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "RAG Web UI"  # Project name
-    VERSION: str = "0.1.0"  # Project version
-    API_V1_STR: str = "/api"  # API version string
+    PROJECT_NAME: str = "RAG Web UI"
+    VERSION: str = "0.1.0"
+    API_V1_STR: str = "/api"
 
     # MySQL settings
     MYSQL_SERVER: str = os.getenv("MYSQL_SERVER", "localhost")
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     BOOTSTRAP_ADMIN_ROLE: str = os.getenv("BOOTSTRAP_ADMIN_ROLE", "super_admin")
     BOOTSTRAP_ADMIN_RESET_PASSWORD: bool = os.getenv("BOOTSTRAP_ADMIN_RESET_PASSWORD", "false").lower() == "true"
 
-    # Chat Provider settings
+    # Chat provider settings
     CHAT_PROVIDER: str = os.getenv("CHAT_PROVIDER", "openai")
 
     # Embeddings settings
@@ -62,28 +62,26 @@ class Settings(BaseSettings):
     DASH_SCOPE_API_KEY: str = os.getenv("DASH_SCOPE_API_KEY", "")
     DASH_SCOPE_EMBEDDINGS_MODEL: str = os.getenv("DASH_SCOPE_EMBEDDINGS_MODEL", "")
 
-    # Vector Store settings
+    # Vector store settings
     VECTOR_STORE_TYPE: str = os.getenv("VECTOR_STORE_TYPE", "chroma")
 
-    # Chroma DB settings
+    # ChromaDB settings
     CHROMA_DB_HOST: str = os.getenv("CHROMA_DB_HOST", "chromadb")
     CHROMA_DB_PORT: int = int(os.getenv("CHROMA_DB_PORT", "8000"))
 
-    # Qdrant DB settings
+    # Qdrant settings
     QDRANT_URL: str = os.getenv("QDRANT_URL", "http://localhost:6333")
     QDRANT_PREFER_GRPC: bool = os.getenv("QDRANT_PREFER_GRPC", "true").lower() == "true"
 
-    # Deepseek settings
-    DEEPSEEK_API_KEY: str = ""
-    DEEPSEEK_API_BASE: str = "https://api.deepseek.com/v1"  # 默认 API 地址
-    DEEPSEEK_MODEL: str = "deepseek-chat"  # 默认模型名称
+    # DeepSeek settings
+    DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
+    DEEPSEEK_API_BASE: str = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
+    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
     # Ollama settings
-    OLLAMA_API_BASE: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "deepseek-r1:7b"
-    OLLAMA_EMBEDDINGS_MODEL: str = os.getenv(
-        "OLLAMA_EMBEDDINGS_MODEL", "nomic-embed-text"
-    )  # Added this line
+    OLLAMA_API_BASE: str = os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "deepseek-r1:7b")
+    OLLAMA_EMBEDDINGS_MODEL: str = os.getenv("OLLAMA_EMBEDDINGS_MODEL", "nomic-embed-text")
 
     class Config:
         env_file = ".env"

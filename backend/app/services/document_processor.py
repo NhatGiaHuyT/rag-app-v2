@@ -307,7 +307,7 @@ async def process_document_background(
             
             # 3. 创建向量存储
             logger.info(f"Task {task_id}: Initializing vector store")
-            embeddings = EmbeddingsFactory.create()
+            embeddings = EmbeddingsFactory.create(db=db)
             
             vector_store = VectorStoreFactory.create(
                 store_type=settings.VECTOR_STORE_TYPE,
@@ -435,5 +435,91 @@ async def process_document_background(
             logger.warning(f"Task {task_id}: Failed to clean up temporary file after error")
     finally:
         # if we create the db session, we need to close it
+        if should_close_db and db:
+            db.close()
+
+
+async def reindex_document_from_chunks(
+    document_id: int,
+    task_id: int,
+    db: Session = None,
+) -> None:
+    """Rebuild vector entries for an existing document from stored chunk records."""
+    logger = logging.getLogger(__name__)
+
+    if db is None:
+        db = SessionLocal()
+        should_close_db = True
+    else:
+        should_close_db = False
+
+    task = db.query(ProcessingTask).get(task_id)
+    document = db.query(Document).get(document_id)
+
+    if not task or not document:
+        logger.error(f"Reindex task {task_id} or document {document_id} not found")
+        if should_close_db:
+            db.close()
+        return
+
+    try:
+        task.status = "processing"
+        task.error_message = None
+        db.add(task)
+        db.commit()
+
+        chunks = (
+            db.query(DocumentChunk)
+            .filter(DocumentChunk.document_id == document_id)
+            .order_by(DocumentChunk.created_at.asc())
+            .all()
+        )
+        if not chunks:
+            raise ValueError("No stored document chunks were found for this document.")
+
+        embeddings = EmbeddingsFactory.create(db=db)
+        vector_store = VectorStoreFactory.create(
+            store_type=settings.VECTOR_STORE_TYPE,
+            collection_name=f"kb_{document.knowledge_base_id}",
+            embedding_function=embeddings,
+        )
+
+        langchain_docs = []
+        chunk_ids = []
+        for chunk in chunks:
+            metadata = dict(chunk.chunk_metadata or {})
+            page_content = metadata.pop("page_content", "")
+            if not page_content.strip():
+                continue
+            langchain_docs.append(
+                LangchainDocument(
+                    page_content=page_content,
+                    metadata=metadata,
+                )
+            )
+            chunk_ids.append(chunk.id)
+
+        if not langchain_docs:
+            raise ValueError("Stored chunks are missing page content, so the document cannot be reindexed.")
+
+        # Replace any prior vectors for these chunk ids, then rebuild with the active embedding settings.
+        vector_store.delete(chunk_ids)
+        vector_store._store.add_documents(langchain_docs, ids=chunk_ids)
+
+        task.status = "completed"
+        task.document_id = document.id
+        document.last_indexed_at = datetime.utcnow()
+        db.add(task)
+        db.add(document)
+        db.commit()
+        logger.info(f"Reindex task {task_id} completed for document {document_id}")
+    except Exception as e:
+        logger.error(f"Reindex task {task_id} failed for document {document_id}: {str(e)}")
+        logger.error(traceback.format_exc())
+        task.status = "failed"
+        task.error_message = str(e)
+        db.add(task)
+        db.commit()
+    finally:
         if should_close_db and db:
             db.close()

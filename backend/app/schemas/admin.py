@@ -130,12 +130,14 @@ class SystemConfigUpdate(BaseModel):
     response_settings: Dict[str, Any] = Field(default_factory=dict)
     feedback_workflow: Dict[str, Any] = Field(default_factory=dict)
     integrations: Dict[str, Any] = Field(default_factory=dict)
+    model_settings: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SystemConfigResponse(BaseModel):
     response_settings: Dict[str, Any] = Field(default_factory=dict)
     feedback_workflow: Dict[str, Any] = Field(default_factory=dict)
     integrations: Dict[str, Any] = Field(default_factory=dict)
+    model_settings: Dict[str, Any] = Field(default_factory=dict)
 
 
 class AdminExpertAssignmentRequest(BaseModel):
