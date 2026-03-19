@@ -235,14 +235,6 @@ docker compose exec backend python bootstrap_admin.py
 
 After the first successful login, set `BOOTSTRAP_ADMIN_ON_STARTUP=false` again so the startup path stops touching that account on every restart.
 
-### Verification
-
-Access the following URLs after service startup:
-
-- 🌐 Frontend UI: http://127.0.0.1.nip.io
-- 📚 API Documentation: http://127.0.0.1.nip.io/redoc
-- 💾 MinIO Console: http://127.0.0.1.nip.io:9001
-
 ## 🏗️ Architecture
 
 ### Backend Stack
@@ -363,24 +355,3 @@ We welcome community contributions!
 - [ ] Multi-path Retrieval
 - [x] Support Multiple Models
 - [x] Support Multiple Vector Databases
-
-## 🔧 Troubleshooting
-
-For common issues and solutions, please refer to our [Troubleshooting Guide](docs/troubleshooting.md).
-
-## 📄 License
-
-This project is licensed under the [Apache-2.0 License](LICENSE)
-
-## Note
-
-This project is for learning and sharing RAG knowledge only. Please do not use it for commercial purposes. It is not ready for production use and is still under active development.
-
-## 🙏 Acknowledgments
-
-Thanks to these open source projects:
-
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [Langchain](https://python.langchain.com/)
-- [Next.js](https://nextjs.org/)
-- [ChromaDB](https://www.trychroma.com/)
