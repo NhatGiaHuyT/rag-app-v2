@@ -17,6 +17,24 @@ from app.schemas.user import UserCreate, UserResponse, UserProfileUpdate
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+
+def serialize_user_response(user: User) -> UserResponse:
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        username=user.username,
+        full_name=user.full_name,
+        bio=user.bio,
+        avatar_url=user.avatar_url,
+        role=user.role,
+        feature_flags=user.feature_flags or {},
+        is_active=user.is_active,
+        is_superuser=user.is_superuser,
+        is_expert=user.is_expert,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )
+
 def get_current_user(
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme)
@@ -76,7 +94,7 @@ def register(*, db: Session = Depends(get_db), user_in: UserCreate) -> Any:
         db.add(user)
         db.commit()
         db.refresh(user)
-        return user
+        return serialize_user_response(user)
     except RequestException as e:
         raise HTTPException(
             status_code=503,
@@ -115,7 +133,7 @@ def test_token(current_user: User = Depends(get_current_user)) -> Any:
     """
     Test access token by getting current user.
     """
-    return current_user
+    return serialize_user_response(current_user)
 
 
 def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
@@ -138,7 +156,7 @@ def get_current_expert(current_user: User = Depends(get_current_user)) -> User:
 
 @router.get("/me", response_model=UserResponse)
 def get_profile(current_user: User = Depends(get_current_user)) -> Any:
-    return current_user
+    return serialize_user_response(current_user)
 
 
 @router.put("/me", response_model=UserResponse)
@@ -170,7 +188,7 @@ def update_profile(
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return serialize_user_response(current_user)
 
 
 @router.get("/users", response_model=list[UserResponse])
@@ -179,4 +197,5 @@ def list_users(
     current_user: User = Depends(get_current_user)
 ) -> Any:
     del current_user
-    return db.query(User).order_by(User.username.asc()).all()
+    users = db.query(User).order_by(User.username.asc()).all()
+    return [serialize_user_response(user) for user in users]
